@@ -1,0 +1,45 @@
+{
+    "extends": "./node_modules/@microsoft/rush-stack-compiler-5.3/includes/tsconfig-web.json",
+    "compilerOptions": {
+        "target": "es5",
+        "module": "esnext",
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "moduleResolution": "node",
+        "jsx": "react",
+        "outDir": "lib",
+        "sourceMap": true,
+        "declaration": true,
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "experimentalDecorators": true,
+        "skipLibCheck": true,
+        "lib": [
+            "es5",
+            "dom",
+            "es2015.collection",
+            "es2015.promise"
+        ],
+        "typeRoots": [
+            "./node_modules/@types",
+            "./node_modules/@microsoft"
+        ],
+        "types": [
+            "webpack-env",
+            "node"
+        ]
+    },
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "src/custom.d.ts" // Include typings for SCSS if created
+    ],
+    "exclude": [
+        "node_modules",
+        "lib"
+    ]
+}

@@ -1,0 +1,26 @@
+define([], () => ({
+    "DownloadAsPdf": "Download as PDF",
+    "SaveAsPdf": "Save as PDF",
+    "DownloadMultipleAsPdf": "Download {0} files as PDF",
+    "ConvertMultipleToPdf": "Convert {0} files to PDF",
+    "ExtSupport": "Extension Support",
+    "CurrentExtSupport": "Current supported extensions",
+    "Processing": "Processing",
+    "GeneratingFiles": "Generating files",
+    "FailedToProcess": "Failed to process",
+    "Exists": "already exists",
+    "Error": "Error",
+    "Completed": "Completed",
+    "OperationFailed": "The operation failed.",
+    "FailedToGenerateUrls": "Failed to generate PDF URLs.",
+    "NoValidFiles": "No valid files selected for conversion.",
+    "NoFilesConverted": "No files were successfully converted.",
+    "BatchConversionComplete": "{0} files converted successfully, {1} files failed.",
+    "BatchConversionSummary": "Batch Conversion Summary",
+    "BatchDownloadComplete": "{0} files downloaded successfully, {1} files failed.",
+    "BatchDownloadSummary": "Batch Download Summary",
+    "Of": "of",
+    "FilesProcessed": "files processed",
+    "CurrentFile": "Current file"
+  }));
+  
