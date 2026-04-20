@@ -9,6 +9,7 @@ import ProgressDialog from './ProgressDialog';
 import * as strings from 'PdfExportCommandSetStrings';
 import JSZip from 'jszip';
 import { RowAccessor } from '@microsoft/sp-listview-extensibility';
+import { preprocessDocxFonts } from './utils/docxFontPreprocessor';
 
 export interface IPdfExportCommandSetProperties { }
 
@@ -17,6 +18,11 @@ interface IBatchConversionResult {
   success: boolean;
   error?: string;
   pdfBlob?: Blob;
+}
+
+interface IPreparedConversionTarget {
+  drivePath: string | null;
+  cleanupUrl?: string;
 }
 
 
@@ -345,15 +351,32 @@ export default class PdfExportCommandSet extends BaseListViewCommandSet<IPdfExpo
       WaitDialog.updateProgress(10, fileName, 'Estimated time: ~30 seconds');
     }
 
+    let cleanupUrl: string | undefined;
     try {
+      const prepared = await this.prepareFileForConversion(siteId, drivePath, fileName);
+      const conversionTargetPath = prepared.drivePath;
+      cleanupUrl = prepared.cleanupUrl;
+      if (!conversionTargetPath) {
+        if (!isBatch) {
+          WaitDialog.close();
+        }
+        return null;
+      }
+
       if (!isBatch) {
         WaitDialog.updateProgress(25, fileName, 'Estimated time: ~20 seconds');
       }
-      const pdfUrl = `${GRAPH_API_BASE}/sites/${siteId}/${drivePath}/content?format=pdf`;
+      const pdfUrl = (p: string): string => `${GRAPH_API_BASE}/sites/${siteId}/${p}/content?format=pdf`;
       if (!isBatch) {
         WaitDialog.updateProgress(50, fileName, 'Estimated time: ~15 seconds');
       }
-      const pdfBlob = await this.fetchPdfBlob(pdfUrl);
+      let pdfBlob: Blob;
+      try {
+        pdfBlob = await this.fetchPdfBlob(pdfUrl(conversionTargetPath));
+      } catch (e) {
+        if (!cleanupUrl) throw e;
+        pdfBlob = await this.fetchPdfBlob(pdfUrl(drivePath));
+      }
       if (!isBatch) {
         WaitDialog.updateProgress(85, fileName, 'Estimated time: ~5 seconds');
       }
@@ -381,7 +404,85 @@ export default class PdfExportCommandSet extends BaseListViewCommandSet<IPdfExpo
         this.handleError(error, 'Error converting document to PDF.');
       }
       return null;
+    } finally {
+      if (cleanupUrl) {
+        try {
+          await this.aadHttpClient.fetch(cleanupUrl, AadHttpClient.configurations.v1, { method: 'DELETE' });
+        } catch {
+          Log.warn(LOG_SOURCE, `Temporary conversion file cleanup failed for ${fileName}`);
+        }
+      }
     }
+  }
+
+  private async prepareFileForConversion(siteId: string, drivePath: string, fileName: string): Promise<IPreparedConversionTarget> {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    if (extension !== 'docx') {
+      return { drivePath };
+    }
+
+    const sourceDownloadUrl = `${GRAPH_API_BASE}/sites/${siteId}/${drivePath}/content`;
+    const sourceResponse = await this.aadHttpClient.get(sourceDownloadUrl, AadHttpClient.configurations.v1);
+    if (!sourceResponse.ok) {
+      throw new Error(`Unable to download DOCX file before conversion: ${fileName}`);
+    }
+
+    const sourceBlob = await sourceResponse.blob();
+    const preprocessResult = await preprocessDocxFonts({
+      docxBlob: sourceBlob,
+      fileName,
+      sharePointWebUrl: this.context.pageContext.web.absoluteUrl,
+      confirm: (title: string, message: string) => WaitDialog.confirm(title, message)
+    });
+
+    if (!preprocessResult.proceed) {
+      Log.info(LOG_SOURCE, `Conversion cancelled by user after font check: ${fileName}`);
+      return { drivePath: null };
+    }
+
+    if (preprocessResult.injectedFonts.length === 0) {
+      return { drivePath };
+    }
+
+    const pathParts = drivePath.split('/');
+    const driveId = pathParts[1];
+    const itemId = pathParts[3];
+    const itemDetailsUrl = `${GRAPH_API_BASE}/drives/${driveId}/items/${itemId}?$select=parentReference`;
+    const itemDetailsResponse = await this.aadHttpClient.get(itemDetailsUrl, AadHttpClient.configurations.v1);
+    if (!itemDetailsResponse.ok) {
+      throw new Error(`Unable to read parent folder for temporary conversion file: ${fileName}`);
+    }
+
+    const itemDetails = await itemDetailsResponse.json();
+    const parentId = itemDetails.parentReference?.id;
+    if (!parentId) {
+      throw new Error(`Missing parent folder reference for temporary conversion file: ${fileName}`);
+    }
+
+    const tempName = `${this.removeFileExtension(fileName)}__font-patched-${Date.now()}.docx`;
+    const uploadUrl = `${GRAPH_API_BASE}/drives/${driveId}/items/${parentId}:/${tempName}:/content`;
+    const uploadResponse = await this.aadHttpClient.fetch(uploadUrl, AadHttpClient.configurations.v1, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      },
+      body: preprocessResult.processedBlob
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Unable to upload temporary DOCX for conversion: ${fileName}`);
+    }
+
+    const uploaded = await uploadResponse.json();
+    const tempItemId = uploaded.id;
+    if (!tempItemId) {
+      throw new Error(`Temporary DOCX uploaded but item id is missing: ${fileName}`);
+    }
+
+    return {
+      drivePath: `drives/${driveId}/items/${tempItemId}`,
+      cleanupUrl: `${GRAPH_API_BASE}/drives/${driveId}/items/${tempItemId}`
+    };
   }
 
   // Check if a file exists in the specified location
